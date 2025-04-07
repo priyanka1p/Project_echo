@@ -1,0 +1,32 @@
+Client 1: i am client 1
+
+Timestamp: Mon Apr  7 17:25:03 2025
+Message Count: 1
+
+Client 1: i am happy to be here
+
+Timestamp: Mon Apr  7 17:25:12 2025
+Message Count: 2
+
+Client 2: hi i am priyanka
+
+Timestamp: Mon Apr  7 17:25:33 2025
+Message Count: 3
+
+Client 2: one of your clients
+
+Timestamp: Mon Apr  7 17:25:39 2025
+Message Count: 4
+
+Client 1: i want information about wonders of world
+
+Timestamp: Mon Apr  7 17:25:57 2025
+Message Count: 5
+
+Client 2: facebook.com
+
+Timestamp: Mon Apr  7 17:26:07 2025
+Message Count: 6
+
+
+/////////////////// Server shutting down ///////////////////
