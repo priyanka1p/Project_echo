@@ -5,28 +5,40 @@
 #include <time.h>
 #include <pthread.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
+#include <signal.h>
 
-#define Buf_SIZE 1024
+#define BUF_SIZE 1024
+#define LOG_FILE "log_server.txt"
 
 void *handle_client(void *arg);
 void error_handling(char *message);
+void handle_sigint(int sig);
 
 // Thread argument structure
 struct client_info {
     int sock;
+    int client_num;
     struct sockaddr_in addr;
 };
+
+pthread_mutex_t client_id_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t log_lock = PTHREAD_MUTEX_INITIALIZER;
 
 int main(int argc, char *argv[]) {
     int ser_sock;
     struct sockaddr_in ser_adr, clnt_adr;
     socklen_t clnt_adr_sz;
+    int client_id_counter = 0;
     pthread_t tid;
 
     if (argc != 2) {
         printf("Usage: %s <port>\n", argv[0]);
         exit(1);
     }
+
+    // Ctrl+C handler
+    signal(SIGINT, handle_sigint);
 
     // Socket creation
     ser_sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -61,10 +73,13 @@ int main(int argc, char *argv[]) {
         cinfo->sock = client_sock;
         cinfo->addr = clnt_adr;
 
-        // Create a thread for each client
-        pthread_create(&tid, NULL, handle_client, (void*)cinfo);//it is non blocking, it creates thread i.e stack and reg are allocated with common heap,DS, CS 
-        pthread_detach(tid); // Automatically free thread resources once completed 
-        //pthread_join(tid,NULL); it will wait for one thread to complete its execution and gives access to other threads.
+        pthread_mutex_lock(&client_id_lock);
+        client_id_counter++;
+        cinfo->client_num = client_id_counter;
+        pthread_mutex_unlock(&client_id_lock);
+
+        pthread_create(&tid, NULL, handle_client, (void*)cinfo);
+        pthread_detach(tid); // Auto-cleanup
     }
 
     close(ser_sock);
@@ -75,24 +90,46 @@ int main(int argc, char *argv[]) {
 void *handle_client(void *arg) {
     struct client_info *cinfo = (struct client_info *)arg;
     int sock = cinfo->sock;
-    char message[Buf_SIZE];
-    int str_len, message_count = 0;
+    int client_num = cinfo->client_num;
+    struct sockaddr_in client_addr = cinfo->addr;
 
+    char client_ip[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, sizeof(client_ip));
+    int client_port = ntohs(client_addr.sin_port);
+    char message[BUF_SIZE];
     printf("Client connected: socket %d\n", sock);
+    int message_count = 0;
 
-    while ((str_len = read(sock, message, Buf_SIZE)) > 0) {
-        message[str_len - 1] = '\0'; // Null-terminate
+    while (1) {
+        int str_len = read(sock, message, BUF_SIZE - 1);
+        if (str_len <= 0)
+            break;
+
+        message[str_len] = '\0';
         message_count++;
 
         time_t now = time(NULL); //returns the current time as the number of seconds
         char *time_str = ctime(&now);//converts into human readable form
-        time_str[strlen(time_str) - 1] = '\0'; // Remove newline
+        time_str[strlen(time_str) - 1] = '\0';//remove newline
+        
+        printf("[Client %d | %s:%d] ➜ %s\n", client_num, client_ip, client_port, message);
 
-        char response[Buf_SIZE];
-        snprintf(response, Buf_SIZE, "Echo: %.887s\tTimestamp: %.100s\tMessage Count: %d\n", message, time_str, message_count);
-
+        char response[BUF_SIZE];
+        snprintf(response, BUF_SIZE, "Echo: %.887s\tTimestamp: %.100s\tMessage Count: %d\n",
+                 message, time_str, message_count);
         send(sock, response, strlen(response), 0);
-        memset(message, 0, Buf_SIZE);
+
+        // Log to file
+        pthread_mutex_lock(&log_lock);
+        FILE *log_fp = fopen(LOG_FILE, "a");
+        if (log_fp) {
+            fprintf(log_fp, "[Client %d | %s:%d] ➜ %s | Count: %d | Time: %s\n",
+                    client_num, client_ip, client_port, message, message_count, time_str);
+            fclose(log_fp);
+        }
+        pthread_mutex_unlock(&log_lock);
+
+        memset(message, 0, BUF_SIZE);
     }
 
     printf("Client disconnected: socket %d\n", sock);
@@ -105,4 +142,20 @@ void error_handling(char *message) {
     fputs(message, stderr);
     fputc('\n', stderr);
     exit(1);
+}
+
+// Ctrl+C handler
+void handle_sigint(int sig) {
+    printf("\n//////////// Server Closed ////////////\n");
+
+    // Log to file
+    pthread_mutex_lock(&log_lock);
+    FILE *log_fp = fopen(LOG_FILE, "a");
+    if (log_fp) {
+        fprintf(log_fp, "\n//////////// Server Closed ////////////\n");
+        fclose(log_fp);
+    }
+    pthread_mutex_unlock(&log_lock);
+
+    exit(0);
 }
